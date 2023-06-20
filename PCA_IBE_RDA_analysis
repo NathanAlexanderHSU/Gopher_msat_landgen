@@ -1,0 +1,405 @@
+
+##Read in your genetic data with georeferenced coordinates. Full data is museum specimens and trap data is trapped individuals
+#read in hist_cont_gen_IBE.csv
+full_data<-read.csv(choose.files())
+dim(full_data)
+
+dim(full_data)
+head(full_data)
+##Check the coordinates
+plot(cbind(full_data[,4],full_data[,3]))
+
+##parse data to only be illinoensis samples
+full_illinois<-full_data[which(full_data$Subspecies=='illinoensis'),]
+head(full_illinois)
+points(cbind(full_illinois[,4],full_illinois[,3]),col="red",pch=16)
+
+require(raster)
+require(rgdal)
+
+sand<-raster("F:\\IBE\\Rasters\\sand_US.asc")
+
+##read in your environmental raster files. For IBE, these should be quanitative and continuous
+
+##soil color file processing:
+##in ArcMap v10.8.1, load the USDA NRCS soil color maps
+##use the copy raster function
+#	Colormap to RGB
+#	Pixel 16 bit unsigned
+#	format Tiff
+
+
+soil_005_r<-raster("F:\\IBE\\soil_color\\all states\\US_cal_5.tif",band=1)
+soil_005_g<-raster("F:\\IBE\\soil_color\\all states\\US_cal_5.tif",band=2)
+soil_005_b<-raster("F:\\IBE\\soil_color\\all states\\US_cal_5.tif",band=3)
+
+us_005<-stack(soil_005_r,soil_005_g,soil_005_b)
+
+soil_col_75_r<-raster("F:\\IBE\\soil_color\\all states\\US_col_75.tif",band=1)
+soil_col_75_g<-raster("F:\\IBE\\soil_color\\all states\\US_col_75.tif",band=2)
+soil_col_75_b<-raster("F:\\IBE\\soil_color\\all states\\US_col_75.tif",band=3)
+
+us_75<-stack(soil_col_75_r,soil_col_75_g,soil_col_75_b)
+
+us_sand<-raster("F:\\IBE\\soil_color\\all states\\US_sand.tif")
+
+####################################
+##extract all the values at Geomys bursarius locations
+dim(full_data)
+
+#full_data
+us_vals_5<-extract(us_005, cbind(full_data[4],full_data[3]))
+us_vals_75<-extract(us_75, cbind(full_data[4],full_data[3]))
+us_vals_sand<-extract(us_sand, cbind(full_data[4],full_data[3]))
+
+
+#illinoensis data
+il_vals_5<-extract(us_005, cbind(full_illinois[,4],full_illinois[,3]))
+il_vals_75<-extract(us_75, cbind(full_illinois[,4],full_illinois[,3]))
+il_vals_sand<-extract(us_sand, cbind(full_illinois[,4],full_illinois[,3]))
+
+boxplot(cbind(il_vals_5,il_vals_75))
+##check for collinearity
+
+##separate out your genetic distances and combine the museum and trapped specimens
+names(full_data)
+Genotypes<-full_data[,26:39]
+Genotypes[Genotypes=="-9"]<-NA
+Genotypes
+dim(Genotypes)
+Coords<- cbind(full_data[4],full_data[3])
+Coords_IL<-cbind(full_illinois[,4],full_illinois[,3])
+head(Coords)
+head(Genotypes)
+
+##extract the raster values at your sample locations
+
+install.packages("PopGenReport")
+install.packages("memgene")
+require(PopGenReport)
+require(memgene)
+
+Genotypes
+##use proportion of shared alleles
+dm <- codomToPropShared(Genotypes,missingData=NA)  
+
+
+##Create distance matrices that are mirrored over the diagonal
+dim(dm)
+
+#year
+Year_us<-c(full_data$Year)
+year_dist_us<-dist(Year,diag=TRUE,upper=TRUE)
+
+
+Year_il<-c(full_illinois$Year)
+year_dist_il<-dist(Year_il,diag=TRUE,upper=TRUE)
+
+
+#Geographic distance
+install.packages("geosphere")
+require(geosphere)
+
+dist_mat_us<-distm(Coords,fun=distGeo)
+dim(dist_mat_us)
+
+dist_mat_il<-distm(Coords_IL,fun=distGeo)
+dim(dist_mat_il)
+
+
+#check IBD
+plot(dm~dist_mat_us)
+
+
+##RDA test##
+install.packages('vegan')
+require(vegan)
+library(adegenet)
+
+
+##read in and assign regions
+
+#US region data is from: 
+#Sources: Esri; Rand McNally; 
+#Bartholemew and Times Books; 
+#Digital Chart of the World (DCW), 
+#U.S. National Geospatial-Intelligence Agency (NGA)
+#https://www.arcgis.com/home/item.html?id=290e4ab8a07f4d2c8392848d011add32#!
+#US Major Rivers
+
+US_regions<-readOGR(dsn="F:\\IBE\\US_rivers",layer="US_groups")
+us_region<-extract(US_regions, cbind(full_data[4],full_data[3]))
+us_region
+
+##Illinois Rivers are identified by the IL major watersheds
+##https://www.isws.illinois.edu/data/ilsam/
+##We bound by Kaskaskia, Sangamon, Mackinaw, Vermillion, Kankakee. (Maybe Middle?)
+
+IL_regions<-readOGR(dsn="F:\\IBE\\US_rivers",layer="IL_rivers")
+IL_region<-extract(IL_regions,cbind(full_illinois[,4],full_illinois[,3]))
+IL_region
+
+##read in a genind object of the full data
+gen_us<-read.genepop(file="F:/IBE/goph_us_genpop_woJugDut.gen",ncode=3L)
+gen_il<-read.genepop(file="F:/IBE/IL_genpop.gen",ncode=3L)
+
+##############################
+##############################
+##Make sure the data were matched correctly
+dev.new()
+plot(Coords_IL)
+text(Coords_IL,rownames(gen_il@tab))
+text(Coords_IL,IL_region$Region)
+plot(Coords)
+text(Coords,rownames(gen_us@tab))
+plot(Coords)
+text(Coords,us_region$Region)
+###############################
+###############################
+#run an sPCA (Jombart et al. 2010)
+install.packages('spdep')
+require(spdep)
+spca <- spca(gen_us, xy=jitter(as.matrix(Coords)), ask=FALSE, type=1,nfpos=2, scannf=FALSE)
+lagged_us<-spca$li
+
+barplot(spca$eig,main="Eigenvalues of US sPCA", col=rep(c("red","grey"),c(1,100)))
+screeplot(spca)
+
+spca_il <- spca(gen_il, xy=jitter(as.matrix(Coords_IL)), ask=FALSE, type=1,nfpos=2, scannf=FALSE)
+lagged_il<-spca_il$li
+
+barplot(spca_il$eig,main="Eigenvalues of IL sPCA", col=rep(c("red","grey"),c(1,100)))
+screeplot(spca_il)
+
+
+###########################################
+###########################################
+##PCA, not sPCA
+
+library(ade4)
+library(adegenet)
+
+gen_il@pop<-as.factor(IL_region$Region)
+IL.smry <- summary(gen_il)
+IL.smry
+
+us.smry<-summary(gen_us)
+us.smry
+
+us_pop<-genind2genpop(gen_us,pop=full_data$Subspecies)
+
+
+
+x.us <- tab(gen_us, freq=TRUE, NA.method="mean")
+x.il <- tab(gen_il, freq=TRUE, NA.method="mean")
+
+dim(x.us)
+
+pca.us <- dudi.pca(x.us, center=TRUE, scale=FALSE,scannf=FALSE,nf=2)
+pca.il <- dudi.pca(x.il, center=TRUE, scale=FALSE,scannf=FALSE,nf=2)
+pca.us
+loadingplot(pca.us$c1^2)
+s.arrow(pca.us$c1)
+
+
+s.label(pca.us$li)
+s.label(pca.il$li)
+
+s.class(pca.us$li, fac=pop(gen_us), col=funky(15))
+s.class(pca.il$li, fac=pop(gen_il), col=funky(15))
+
+barplot(pca.us$eig,main="Eigenvalues of US PCA", col=rep(c("yellow","red","grey"),c(2,16,100)))
+barplot(pca.il$eig,main="Eigenvalues of IL PCA", col=rep(c("yellow","red","grey"),c(2,16,100)))
+
+#############################################
+#############################################
+#Calculate distances
+
+#calculate distances between the color values.
+
+us_dist_5<-dist(us_vals_5,diag=TRUE,upper=TRUE)
+us_dist_75<-dist(us_vals_75,diag=TRUE,upper=TRUE)
+
+il_dist_5<-dist(il_vals_5,diag=TRUE,upper=TRUE)
+il_dist_75<-dist(il_vals_75,diag=TRUE,upper=TRUE)
+
+#assign a year parameter
+Year_us<-c(full_data$Year)
+Year_il<-full_illinois$Year
+
+###Convert soil distances into PCA
+us_soil_05_pc<-pcnm(us_dist_5)
+us_soil_75_pc<-pcnm(us_dist_75)
+
+il_soil_05_pc<-pcnm(il_dist_5)
+il_soil_75_pc<-pcnm(il_dist_75)
+
+
+us_dist_pc<-pcnm(dist_mat_us)
+il_dist_pc<-pcnm(dist_mat_il)
+
+###########################################
+###########################################
+##create a data frame of the predictors
+
+test_subspec<-cbind(full_data$ID,lagged_us[,1:2],us_soil_05_pc$vectors[,1],us_soil_75_pc$vectors[,1],
+us_vals_sand,us_region$Region,Year_us,full_data$Subspecies,full_data$Long,full_data$Lat,us_dist_pc$vectors[,1])
+
+colnames(test_subspec)<-c("ID","sPC1","sPC2","PCNM_05","PCNM_75","SandPercent","Region","Subspecies","Year","Long","Lat","PCNM_dist")
+attach(test)
+
+
+test_us<-cbind(full_data$ID,us_soil_05_pc$vectors[,1],us_soil_75_pc$vectors[,1],
+us_vals_sand,us_region$Region,Year_us,full_data$Long,full_data$Lat,us_dist_pc$vectors[,1])
+
+test_il<-cbind(full_illinois$ID,lagged_il[,1:2],il_soil_05_pc$vectors[,1],il_soil_75_pc$vectors[,1],
+il_vals_sand,IL_region$Region,Year_il,full_illinois$Long,full_illinois$Lat,il_dist_pc$vectors[,1])
+
+
+colnames(test_us)<-c("ID","PCNM_05","PCNM_75","SandPercent","Region","Year","Long","Lat","PCNM_dist")
+colnames(test_il)<-c("ID","sPC1","sPC2","PCNM_05","PCNM_75","SandPercent","Region","Year","Long","Lat","PCNM_dist")
+
+write.csv(test_subspec,"F:/IBE/varpart_data/test_subspec.csv")
+write.csv(test_us,"F:/IBE/varpart_data/test_us.csv")
+write.csv(test_il,"F:/IBE/varpart_data/test_il.csv")
+
+boxplot(test_us$Year~test_us$Region)
+mean(test_us$Year)
+median(test_us$Year)
+sd(test_us$Year)
+dev.new()
+boxplot(test_il$Year~test_il$Region,col=c(2:sum(1+length(test_il$Region))))
+mean(test_il$Year)
+median(test_il$Year)
+sd(test_il$Year)
+
+#######################################
+#######################################
+#Run RDAs
+
+##sPCA
+
+pca.us$li
+attach(data.frame(test_us))
+full_us_s<-rda(sPC1+sPC2~PCNM_05+PCNM_75+SandPercent+Region+Year+Condition(PCNM_dist), data=test_us)
+full_us<-rda(pca.us$li~PCNM_05+PCNM_75+SandPercent+Region+Year+PCNM_dist, data=test_us)
+full_us<-rda(pca.us$li~scale(PCNM_05)+scale(PCNM_75)+scale(SandPercent)+Region+scale(Year)+scale(PCNM_dist), data=as.matrix(test_us))
+
+test_us<-data.frame(test_us)
+full_ibe_2<-rda(pca.us$li[,1:2]~scale(as.numeric(PCNM_05))+scale(as.numeric(PCNM_75))+
+	scale(as.numeric(SandPercent))+scale(as.numeric(Year))+scale(as.numeric(PCNM_dist)), data=test_us)
+full_il_ibe_2<-rda(pca.il$li[,1:2]~scale(PCNM_05)+scale(PCNM_75)+scale(SandPercent)+scale(Year)+scale(PCNM_dist), data=test_il)
+
+
+full_ibe_16<-rda(pca.us$li~scale(as.numeric(PCNM_05))+scale(as.numeric(PCNM_75))+
+	scale(as.numeric(SandPercent))+scale(as.numeric(Year))+scale(as.numeric(PCNM_dist)), data=test_us)
+full_il_ibe_16<-rda(pca.il$li~scale(PCNM_05)+scale(PCNM_75)+scale(SandPercent)+scale(Year)+scale(PCNM_dist), data=test_il)
+
+
+
+mod_us_2<-rda(pca.us$li[,1:2] ~ 1,data=test_us)
+mod_il_2<-rda(pca.il$li[,1:2] ~ 1,data=test_il)
+mod_us_16<-rda(pca.us$li ~ 1,data=test_us)
+mod_il_16<-rda(pca.il$li ~ 1,data=test_il)
+
+sel_us_2<-ordistep(mod_us_2, scope = formula(full_ibe_2), perm.max = 10000, direction="both")
+sel_il_2<-ordistep(mod_il_2, scope = formula(full_il_ibe_2), perm.max = 10000, direction="both")
+sel_us_16<-ordistep(mod_us_16, scope = formula(full_ibe_16), perm.max = 10000, direction="both")
+sel_il_16<-ordistep(mod_il_16, scope = formula(full_il_ibe_16), perm.max = 10000, direction="both")
+
+anova.cca(sel_us_2,by="term")
+anova.cca(sel_il_2,by="term")
+anova.cca(sel_us_16,by="term")
+anova.cca(sel_il_16,by="term")
+
+sel_us_2$anova
+RsquareAdj(sel_us_2)
+
+sel_il_2$anova
+RsquareAdj(sel_il_2)
+
+sel_us_16$anova
+RsquareAdj(sel_us_16)
+
+sel_il_16$anova
+RsquareAdj(sel_il_16)
+summary(full)
+
+
+attach(test_il)
+full_il<-rda(sPC1+sPC2~PCNM_05+PCNM_75+SandPercent+Region+Year+PCNM_dist, data=test_il)
+full_il<-rda(pca.il$li~PCNM_05+PCNM_75+SandPercent+Region+Year+PCNM_dist, data=test_il)
+full_il<-rda(pca.il$li~scale(PCNM_05)+scale(PCNM_75)+scale(SandPercent)+Region+scale(Year)+scale(PCNM_dist), data=test_il)
+
+
+vif.cca(full_us)
+vif.cca(full_il)
+vif.cca(full_ibe)
+vif.cca(full_il_ibe)
+colnames(test_us)
+dim(test_us)
+
+pairs(cbind(test_us[,4:6],test_us[8:11]))
+cor(cbind(test_us[,4:6],test_us[8:11]),method="spearman")
+
+pairs(cbind(test_il[,4:6],test_il[8:11]))
+cor(cbind(test_il[,4:6],test_il[8:11]),method="spearman")
+
+mod0<-rda(sPC1+sPC2 ~ 1,data=test_il)
+mod0<-rda(pca.il$li ~ 1,data=test_il)
+mod0<-rda(pca.us$li[,1:2] ~ 1,data=test_us)
+
+sel<-ordistep(mod0, scope = formula(full_il), perm.max = 10000, direction="both")
+anova.cca(full_us,perm=10000)
+anova.cca(full_il)
+anova.cca(sel)
+sel$anova
+RsquareAdj(sel)
+RsquareAdj(full_us)
+vif.cca(sel)
+
+plot(sel)
+plot(goodness(sel))
+
+
+sel_t<-rda(sPC1+sPC2~Region+Condition(Year+PCNM_dist), data=test)
+sel_m<-rda(sPC1+sPC2~Year+Condition(Region+PCNM_dist), data=test)
+sel_n<-rda(sPC1+sPC2~Year+Region+Condition(PCNM_dist), data=test)
+sel_p<-rda(sPC1+sPC2~Year+Region+PCNM_dist, data=test)
+
+RsquareAdj(sel_t)
+RsquareAdj(sel_m)
+RsquareAdj(sel_n)
+RsquareAdj(sel_p)
+
+##########################################################
+#Variation partitioning (varpart)
+
+
+dev.new()
+mod <- varpart(sPC1+sPC2, ~cbind(PCNM_05,PCNM_75,SandPercent),~Region, ~PCNM_dist,~Year,data=test_us)
+mod <- varpart(pca.us$li, ~cbind(scale(PCNM_05),scale(PCNM_75),scale(SandPercent)),~Region, ~scale(PCNM_dist),~scale(Year),data=test_us)
+mod <- varpart(pca.us$li, ~cbind(PCNM_05,SandPercent),~Region, ~PCNM_dist,~Year,data=test_us)
+
+mod <- varpart(pca.il$li, ~cbind(PCNM_05,PCNM_75,SandPercent),~Region, ~PCNM_dist,~Year,data=test_il)
+
+mod_ibe <- varpart(pca.us$li, ~cbind(scale(PCNM_05),scale(PCNM_75),scale(SandPercent)),~scale(PCNM_dist),data=test_us)
+mod_il_ibe <- varpart(pca.il$li[,1:2], ~cbind(scale(PCNM_75),scale(SandPercent)),~scale(PCNM_dist),~scale(Year),data=test_il)
+
+mod
+summary(mod)
+
+for(i in 1:16){
+mod <- varpart(pca.us$li[,1:i], ~cbind(scale(PCNM_05),scale(PCNM_75),scale(SandPercent)),~Region, ~scale(PCNM_dist),~scale(Year),data=test_us)
+dev.new()
+plot(mod,bg=c("cyan","yellow","grey","darkgreen"),cutoff=0,cex=1.5)
+}
+
+## Use fill colours
+
+plot(mod,bg=c("cyan","yellow","grey","darkgreen"),cutoff=0,cex=1.5)
+dev.new()
+plot(mod_il_ibe,bg=c("cyan","yellow","grey","darkgreen"),cutoff=0,cex=1.5)
+
+## Show values for all partitions by putting 'cutoff' low enough:
+
