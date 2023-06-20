@@ -1,0 +1,204 @@
+install.packages('adegenet')
+install.packages('pegas')
+library(pegas)
+library(adegenet)
+
+full_data<-read.csv(choose.files())
+
+##dutcheri and jugossicularis were elevated to different species/subspecies
+##within G. breviceps
+#unique(full_data$Subspecies)
+#full_data<-full_data[which(full_data$Subspecies!="dutcheri"),]
+#full_data<-full_data[which(full_data$Subspecies!="jugossicularis"),]
+
+
+dim(full_data)
+
+dim(full_data)
+head(full_data)
+##Check the coordinates
+plot(cbind(full_data[,4],full_data[,3]))
+
+##parse data to only be illinoensis samples
+full_illinois<-full_data[which(full_data$Subspecies=='illinoensis'),]
+head(full_illinois)
+points(cbind(full_illinois[,4],full_illinois[,3]),col="red",pch=16)
+
+gen_us<-read.genepop(file="F:/IBE/goph_us_genpop_woJugDut.gen",ncode=3L)
+gen_il<-read.genepop(file="F:/IBE/IL_genpop.gen",ncode=3L)
+
+
+library(ade4)
+library(adegenet)
+
+
+require(rgdal)
+require(raster)
+IL_regions<-readOGR(dsn="F:\\IBE\\US_rivers",layer="IL_rivers")
+IL_region<-extract(IL_regions,cbind(full_illinois[,4],full_illinois[,3]))
+IL_region
+gen_il@pop<-as.factor(IL_region$Region)
+IL.smry <- summary(gen_il)
+IL.smry
+
+us_regions<-readOGR(dsn="F:\\IBE\\US_rivers",layer="US_groups")
+us_region<-extract(us_regions,cbind(full_data[,4],full_data[,3]))
+dim(us_region)
+gen_us@pop<-as.factor(us_region$Region)
+us.smry<-summary(gen_us)
+us.smry
+
+
+##Code from LandGenCourse https://bookdown.org/hhwagner1/LandGenCourse_book/WE_3.html
+ 
+round(pegas::hw.test(gen_us, B = 1000), digits = 3)
+round(pegas::hw.test(gen_il, B = 1000), digits = 3)
+
+HWE.test <- data.frame(sapply(seppop(gen_us,pop=gen_us@pop), 
+                              function(ls) pegas::hw.test(ls, B=0)[,3]))
+HWE.test.chisq <- t(data.matrix(HWE.test))
+{cat("Chi-squared test (p-values):", "\n")
+round(HWE.test.chisq,3)}
+
+HWE.test_il <- data.frame(sapply(seppop(gen_il,pop=gen_il@pop), 
+                              function(ls) pegas::hw.test(ls, B=0)[,3]))
+HWE.test.chisq_il <- t(data.matrix(HWE.test_il))
+
+{cat("Chi-squared test (p-values):", "\n")
+round(HWE.test.chisq,3)}
+
+
+{cat("Chi-squared test (p-values):", "\n")
+round(HWE.test.chisq_il,3)}
+
+
+HWE.test <- data.frame(sapply(seppop(gen_us,pop=gen_us@pop), 
+                              function(ls) pegas::hw.test(ls, B=1000)[,4]))
+HWE.test_il <- data.frame(sapply(seppop(gen_il,pop=gen_il@pop), 
+                              function(ls) pegas::hw.test(ls, B=1000)[,4]))
+
+HWE.test.MC <- t(data.matrix(HWE.test))
+{cat("MC permuation test (p-values):", "\n")
+round(HWE.test.MC,3)}
+
+HWE.test.MC_il <- t(data.matrix(HWE.test_il))
+{cat("MC permuation test (p-values):", "\n")
+round(HWE.test.MC_il,3)}
+
+alpha=0.05
+Prop.loci.out.of.HWE <- data.frame(Chisq=apply(HWE.test.chisq<alpha, 2, mean), 
+           MC=apply(HWE.test.MC<alpha, 2, mean))
+Prop.loci.out.of.HWE    
+
+Prop.loci.out.of.HWE_il <- data.frame(Chisq=apply(HWE.test.chisq_il<alpha, 2, mean), 
+           MC=apply(HWE.test.MC_il<alpha, 2, mean))
+Prop.loci.out.of.HWE_il    
+
+
+
+Prop.pops.out.of.HWE <- data.frame(Chisq=apply(HWE.test.chisq<alpha, 1, mean), 
+           MC=apply(HWE.test.MC<alpha, 1, mean))
+Prop.pops.out.of.HWE
+
+Chisq.fdr <- matrix(p.adjust(HWE.test.chisq,method="fdr"), 
+                    nrow=nrow(HWE.test.chisq))
+MC.fdr <- matrix(p.adjust(HWE.test.MC, method="fdr"), 
+                    nrow=nrow(HWE.test.MC))
+
+Prop.pops.out.of.HWE <- data.frame(Chisq=apply(HWE.test.chisq<alpha, 1, mean), 
+           MC=apply(HWE.test.MC<alpha, 1, mean),
+           Chisq.fdr=apply(Chisq.fdr<alpha, 1, mean),
+           MC.fdr=apply(MC.fdr<alpha, 1, mean))
+Prop.pops.out.of.HWE 
+
+############################################
+############################################
+#Linkage Disequilibrium
+install.packages('gtable')
+require(gtable)
+require(ggplot2)
+install.packages('poppr')
+require(poppr)
+install.packages('devtools')
+if (!require("devtools")) install.packages("devtools")
+devtools::install_github("hhwagner1/LandGenCourse")
+library(LandGenCourse)
+install.packages('LandGenCourse')
+require(LandGenCourse)
+install.packages('PopGenReport')
+require(PopGenReport)
+
+us_region<-read.csv(choose.files())
+head(us_region)
+
+gen_us@pop<-as.factor(us_region$Region)
+poppr::ia(gen_us,sample=999)
+
+poppr::ia(gen_us, sample=999)
+poppr::ia(gen_il, sample=199)
+
+LD.pair <- poppr::pair.ia(gen_us)
+plot(LD.pair)
+
+LD.pair <- poppr::pair.ia(gen_il)
+LD.pair
+
+Null.alleles <- PopGenReport::null.all(gen_us)
+Null.alleles$homozygotes$probability.obs
+
+{cat(" summary1 (Chakraborty et al. 1994):", "\n")
+round(Null.alleles$null.allele.freq$summary1,2)}
+
+par(mar=c(3, 4.5,1,1))
+barplot(us.smry$Hexp, ylim=c(0,1), ylab="Expected heterozygosity")
+barplot(us.smry$Hobs, ylim=c(0,1), ylab="Observed heterozygosity")
+plot(us.smry$n.by.pop, us.smry$pop.n.all, 
+       xlab = "Sample size", ylab = "Number of alleles")
+abline(lm(us.smry$pop.n.all ~ us.smry$n.by.pop), col = "red")
+
+
+Richness <- PopGenReport::allel.rich(gen_us, min.alleles = NULL)
+Richness$alleles.sampled
+
+par(mar=c(5.5, 4.5,1,1))
+barplot(Richness$mean.richness, las=3, ylab="Rarefied allelic richness (Ar)")
+plot(colMeans(Richness$pop.sizes), Richness$mean.richness,
+     xlab="Valid sample size", 
+     ylab="Rarefied allelic richness (Ar)")
+abline(lm(Richness$mean.richness ~ colMeans(Richness$pop.sizes)), col="red")
+
+
+Hobs <- t(sapply(seppop(gen_us), function(ls) summary(ls)$Hobs))
+Hexp <- t(sapply(seppop(gen_us), function(ls) summary(ls)$Hexp))
+  {cat("Expected heterozygosity (Hexp):", "\n")
+  round(Hexp, 2)
+  cat("\n", "Observed heterozygosity (Hobs):", "\n")
+  round(Hobs, 2)} 
+
+  par(mar=c(5.5, 4.5, 1, 1))
+  Hobs.pop <- apply(Hobs, MARGIN = 1, FUN = mean)
+  Hexp.pop <- apply(Hexp, 1, mean) 
+  barplot(Hexp.pop, ylim=c(0,1), las=3, ylab="Expected heterozygosity")
+  barplot(Hobs.pop, ylim=c(0,1), las=3, ylab="Observed heterozygosity")
+
+us.diversity <- data.frame(Pop = names(Hobs.pop),
+                              n = us.smry$n.by.pop,
+                              Hobs = Hobs.pop,
+                              Hexp = Hexp.pop,
+                              Ar = Richness$mean.richness)
+us.diversity
+
+us.genpop <- adegenet::genind2genpop(gen_us)
+
+Freq <- adegenet::makefreq(us.genpop)
+round(Freq[1:6,1:10], 2)
+apply(Freq, MARGIN = 1, FUN = sum) 
+
+require(poppr)
+poppr::Gst_Hedrick(gen_us)
+library(devtools)
+install_github("jgx65/hierfstat")
+library("hierfstat")
+pairwise.neifst(gen_us)
+pairwise.neifst(gen_il)
+
